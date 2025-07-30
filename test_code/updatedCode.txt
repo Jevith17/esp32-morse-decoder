@@ -1,0 +1,107 @@
+#include "wordlist.h"
+
+// --- Pin Definition & Timings (same as before) ---
+#define BUTTON_PIN 14
+#define DOT_LENGTH 250
+#define DASH_LENGTH (DOT_LENGTH * 3)
+#define LETTER_GAP (DOT_LENGTH * 3)
+#define WORD_GAP (DOT_LENGTH * 7)
+
+// --- Morse Code Dictionary (same as before) ---
+const char* morse_code[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
+const char morse_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+String current_sequence = "";
+String translated_text = "";
+String predicted_chars = "";
+unsigned long press_time = 0;
+unsigned long release_time = 0;
+unsigned long last_input_time = 0;
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(BUTTON_PIN, INPUT);
+  Serial.println("Predictive Morse Translator Ready!");
+  Serial.println("----------------------------------");
+}
+
+void loop() {
+  if (digitalRead(BUTTON_PIN) == HIGH) {
+    if (press_time == 0) {
+      press_time = millis();
+      if (press_time - last_input_time > LETTER_GAP && current_sequence != "") {
+        translateSequence();
+      }
+    }
+  } else {
+    if (press_time != 0) {
+      release_time = millis();
+      unsigned long press_duration = release_time - press_time;
+      if (press_duration < DOT_LENGTH) {
+        current_sequence += ".";
+      } else {
+        current_sequence += "-";
+      }
+      last_input_time = millis();
+      press_time = 0;
+      updateSerialMonitor();
+    }
+  }
+
+  if (millis() - last_input_time > WORD_GAP && current_sequence != "") {
+    translateSequence();
+    translated_text += " ";
+    updateSerialMonitor();
+  } else if (millis() - last_input_time > LETTER_GAP && current_sequence != "" && press_time == 0) {
+    translateSequence();
+  }
+}
+
+void updatePredictions() {
+  predicted_chars = "";
+  if (translated_text.length() == 0) return;
+
+  int last_space = translated_text.lastIndexOf(' ');
+  String current_word = (last_space == -1) ? translated_text : translated_text.substring(last_space + 1);
+
+  if (current_word.length() == 0) {
+    updateSerialMonitor();
+    return;
+  }
+
+  for (int i = 0; i < WORD_LIST_SIZE; i++) {
+    String word_from_list = String(word_list[i]);
+    if (word_from_list.startsWith(current_word) && word_from_list.length() > current_word.length()) {
+      char next_char = word_from_list.charAt(current_word.length());
+      if (predicted_chars.indexOf(next_char) == -1) {
+        predicted_chars += next_char;
+      }
+    }
+  }
+  updateSerialMonitor();
+}
+
+void translateSequence() {
+  bool found = false;
+  for (int i = 0; i < 26; i++) {
+    if (current_sequence.equals(morse_code[i])) {
+      translated_text += morse_chars[i];
+      found = true;
+      break;
+    }
+  }
+  if (!found) {
+    translated_text += "?";
+  }
+
+  current_sequence = "";
+  updatePredictions(); // This now calls updateSerialMonitor inside it
+}
+
+void updateSerialMonitor() {
+  // A single, comprehensive status line that overwrites itself
+  Serial.print("\r                                                                          \r"); // Clear line
+  Serial.print("Text: " + translated_text);
+  Serial.print(" | Current: " + current_sequence);
+  Serial.print(" | Predicts: " + predicted_chars);
+}
