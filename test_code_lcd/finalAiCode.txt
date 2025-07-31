@@ -1,0 +1,141 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "wordlist.h"
+#include "YourProjectName_inference.h" // <-- CHANGE THIS NAME
+
+// --- Pin Definition ---
+#define BUTTON_PIN 14
+
+// --- Timings are now only for gaps, not for dot/dash length ---
+#define LETTER_GAP 750  // You can adjust this gap based on your speed
+#define WORD_GAP 1750   // You can adjust this gap
+
+// --- LCD & Morse Dictionary (same as before) ---
+LiquidCrystal_I2C lcd(0x27, 16, 2);
+const char* morse_code[] = {".-", "-...", "-.-.", "-..", ".", "..-.", "--.", "....", "..", ".---", "-.-", ".-..", "--", "-.", "---", ".--.", "--.-", ".-.", "...", "-", "..-", "...-", ".--", "-..-", "-.--", "--.."};
+const char morse_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
+// --- Global Variables (same as before) ---
+String current_sequence = "";
+String translated_text = "";
+String predicted_chars = "";
+unsigned long press_time = 0;
+unsigned long release_time = 0;
+unsigned long last_input_time = 0;
+
+// --- AI-specific variables ---
+static float latest_press_duration = 0;
+
+// Helper function required by Edge Impulse
+int get_feature_data(size_t offset, size_t length, float *out_ptr) {
+    *out_ptr = latest_press_duration;
+    return 0;
+}
+
+void setup() {
+  pinMode(BUTTON_PIN, INPUT);
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0, 0);
+  lcd.print("AI Translator ON");
+}
+
+void loop() {
+  if (digitalRead(BUTTON_PIN) == HIGH) {
+    if (press_time == 0) {
+      press_time = millis();
+      if (press_time - last_input_time > LETTER_GAP && current_sequence != "") {
+        translateSequence();
+      }
+    }
+  } else {
+    if (press_time != 0) {
+      release_time = millis();
+      latest_press_duration = (float)(release_time - press_time);
+
+      // --- AI INFERENCE ---
+      signal_t signal;
+      signal.total_length = 1;
+      signal.get_data = &get_feature_data;
+      ei_impulse_result_t result = {0};
+      run_classifier(&signal, &result, false);
+
+      // Find top prediction
+      String prediction = "";
+      float confidence = 0.0;
+      for (size_t ix = 0; ix < EI_CLASSIFIER_LABEL_COUNT; ix++) {
+          if (result.classification[ix].value > confidence) {
+              confidence = result.classification[ix].value;
+              prediction = result.classification[ix].label;
+          }
+      }
+      
+      if (prediction == "dot") {
+        current_sequence += ".";
+      } else if (prediction == "dash") {
+        current_sequence += "-";
+      }
+      
+      last_input_time = millis();
+      press_time = 0;
+      updateDisplay();
+    }
+  }
+
+  // Gap detection remains the same
+  if (millis() - last_input_time > WORD_GAP && current_sequence != "") {
+    translateSequence();
+    translated_text += " ";
+    updateDisplay();
+  } else if (millis() - last_input_time > LETTER_GAP && current_sequence != "" && press_time == 0) {
+    translateSequence();
+  }
+}
+
+// Paste the helper functions from Phase 2 here. They do not need to change.
+void updatePredictions() {
+  predicted_chars = "";
+  if (translated_text.length() == 0) return;
+  int last_space = translated_text.lastIndexOf(' ');
+  String current_word = (last_space == -1) ? translated_text : translated_text.substring(last_space + 1);
+  if (current_word.length() == 0) return;
+  for (int i = 0; i < WORD_LIST_SIZE; i++) {
+    String word_from_list = String(word_list[i]);
+    if (word_from_list.startsWith(current_word) && word_from_list.length() > current_word.length()) {
+      char next_char = word_from_list.charAt(current_word.length());
+      if (predicted_chars.indexOf(next_char) == -1 && predicted_chars.length() < 5) { 
+        predicted_chars += next_char;
+      }
+    }
+  }
+}
+
+void translateSequence() {
+  bool found = false;
+  for (int i = 0; i < 26; i++) {
+    if (current_sequence.equals(morse_code[i])) {
+      translated_text += morse_chars[i];
+      found = true;
+      break;
+    }
+  }
+  if (!found) translated_text += "?";
+  current_sequence = "";
+  updatePredictions();
+  updateDisplay();
+}
+
+void updateDisplay() {
+  lcd.clear();
+  lcd.setCursor(0, 0);
+  lcd.print(translated_text);
+  lcd.setCursor(0, 1);
+  String bottom_line = "In:" + current_sequence;
+  lcd.print(bottom_line);
+  lcd.setCursor(9, 1);
+  lcd.print("P:" + predicted_chars);
+}```
+
+#### **Step 4: Final Upload and Test**
+
+Upload this final code. Your device will now power on, using your custom AI model to interpret your button presses with high accuracy. The LCD will display the translated text along with helpful predictions, creating a fast, intuitive, and personalized Morse code translator.
