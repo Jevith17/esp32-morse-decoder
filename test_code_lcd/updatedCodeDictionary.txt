@@ -1,0 +1,65 @@
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+#include "wordlist.h" // Include your word list
+
+// ... (keep all the pin, timing, LCD, and dictionary definitions) ...
+
+String predicted_chars = ""; // New variable for predictions
+
+// ... (setup() and loop() functions remain IDENTICAL to Phase 1) ...
+
+void updatePredictions() {
+  predicted_chars = "";
+  if (translated_text.length() == 0) return;
+
+  // Find the last word being typed
+  int last_space = translated_text.lastIndexOf(' ');
+  String current_word = (last_space == -1) ? translated_text : translated_text.substring(last_space + 1);
+
+  if (current_word.length() == 0) return;
+
+  // Search the word list
+  for (int i = 0; i < WORD_LIST_SIZE; i++) {
+    String word_from_list = String(word_list[i]);
+    if (word_from_list.startsWith(current_word) && word_from_list.length() > current_word.length()) {
+      char next_char = word_from_list.charAt(current_word.length());
+      // Add unique predictions (up to a few characters to fit the screen)
+      if (predicted_chars.indexOf(next_char) == -1 && predicted_chars.length() < 5) { 
+        predicted_chars += next_char;
+      }
+    }
+  }
+}
+
+// MODIFY the translateSequence function to call predictions
+void translateSequence() {
+  bool found = false;
+  for (int i = 0; i < 26; i++) {
+    if (current_sequence.equals(morse_code[i])) {
+      translated_text += morse_chars[i];
+      found = true;
+      break;
+    }
+  }
+  if (!found) translated_text += "?";
+
+  current_sequence = "";
+  updatePredictions(); // Call the prediction function here
+  updateDisplay();
+}
+
+// MODIFY the updateDisplay function to show predictions
+void updateDisplay() {
+  lcd.clear();
+  // Top row: Translated text
+  lcd.setCursor(0, 0);
+  lcd.print(translated_text);
+
+  // Bottom row: Live input and predictions
+  lcd.setCursor(0, 1);
+  String bottom_line = "In:" + current_sequence;
+  lcd.print(bottom_line);
+
+  lcd.setCursor(9, 1); // Move cursor to make space
+  lcd.print("P:" + predicted_chars);
+}
